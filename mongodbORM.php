@@ -204,24 +204,42 @@ class MongoRecord {
      * @throws Exception
      */
     public function __construct() {
-        global $mongoConnect;
-
+        # if you dont use it in Yii Framework, remove them
         $configYii = Yii::app()->getComponents(false);
         if (isset($configYii['mongodb'])) {
             $this->hostinfo = array_merge($this->hostinfo, $configYii['mongodb']);
         }
+        # setup connect mongo, mongoDB
+        $this->_connectMongo();
+        # run init method first
+        $this->init();
+    }
+
+    /**
+     * connect mongo
+     * @param interger $retry times connect mongo when connect fail
+     * @throws Exception cant not connect mongodb
+     */
+    private function _connectMongo($retry = 3) {
+        global $mongoConnect;
         $username = $this->hostinfo['username'];
         $password = $this->hostinfo['password'];
         $dbname = $this->hostinfo['db'];
         $host = $this->hostinfo['host'];
+
         // check connect object is stored in global variable or not
+        // retry connect if connect is false
+        // if over three times, throw exception
         if (!is_object($mongoConnect) || !get_class($mongoConnect) == 'Mongo') {
-            if ($username != '' && $password != '') {
-                $this->_connect = new Mongo("mongodb://{$username}:{$password}@{$host}"); // Connect to Mongo Server
-            } else {
-                $this->_connect = new Mongo("mongodb://{$host}");
+            try {
+                $stringConnect = $username != '' && $password != '' ? "{$username}:{$password}@{$host}" : "{$host}";
+                $this->_connect = new Mongo("mongodb://$stringConnect");
+                $mongoConnect = $this->_connect;
+            } catch (Exception $e) {
+                if ($retry > 0) {
+                    $this->_connectMongo(--$retry);
+                }
             }
-            $mongoConnect = $this->_connect;
         } else {
             $this->_connect = $mongoConnect;
         }
@@ -230,7 +248,6 @@ class MongoRecord {
             throw new Exception("could not connect to mongdoDb: " . $host . " or database config is not setted");
         }
         $this->_db = $this->_connect->selectDB($dbname);
-        $this->init();
     }
 
     /**
