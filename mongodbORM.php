@@ -1,9 +1,10 @@
 <?php
 
 /**
- * Connect to mongoDB
+ * Basic Mongo Class base on native php mongo driver
+ * Base on ORM design patterm
  *
- * @author Phong Pham Hong
+ * @author Phong Pham Hong <phongbro1805@gmail.com>
  * @date 07.24.2014
  */
 /**
@@ -24,12 +25,19 @@ class MongoRecord {
      * @var array
      */
     public $hostinfo = array(
-        'host' => '192.168.4.51',
-        'port' => '27017',
+        'host' => '',
+        'port' => '',
         'username' => '',
         'password' => '',
         'db' => 'service'
     );
+
+    /**
+     * store object for singeleton design pattern
+     * 
+     * @var MongoRecord 
+     */
+    private static $instance;
 
     /**
      *
@@ -50,6 +58,12 @@ class MongoRecord {
     protected $_collection;
     protected $_id;
     protected $_document;
+
+    /**
+     * default timezone
+     * @var string
+     */
+    public $timezone = 'UTC';
 
     /**
      *
@@ -116,6 +130,15 @@ class MongoRecord {
      */
     public function getHostinfo() {
         return $this->hostinfo;
+    }
+
+    /**
+     * get connect
+     * 
+     * @return MongoClient 
+     */
+    public function getConnect() {
+        return $this->_connect;
     }
 
     /**
@@ -208,6 +231,7 @@ class MongoRecord {
         $configYii = Yii::app()->getComponents(false);
         if (isset($configYii['mongodb'])) {
             $this->hostinfo = array_merge($this->hostinfo, $configYii['mongodb']);
+            $this->timezone = isset($configYii['mongodb']['timezone']) ? $configYii['mongodb']['timezone'] : $this->timezone;
         }
         # setup connect mongo, mongoDB
         $this->_connectMongo();
@@ -233,7 +257,7 @@ class MongoRecord {
         if (!is_object($mongoConnect) || !get_class($mongoConnect) == 'Mongo') {
             try {
                 $stringConnect = $username != '' && $password != '' ? "{$username}:{$password}@{$host}" : "{$host}";
-                $this->_connect = new Mongo("mongodb://$stringConnect");
+                $this->_connect = new MongoClient("mongodb://$stringConnect");
                 $mongoConnect = $this->_connect;
             } catch (Exception $e) {
                 if ($retry > 0) {
@@ -251,7 +275,20 @@ class MongoRecord {
     }
 
     /**
-     * Initializes the widget.
+     * Get instance of this class by static method
+     * 
+     * @return MongoRecord
+     */
+    public static function instance() {
+        if (!self::$instance) {
+            $class = __CLASS__;
+            self::$instance = new $class;
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Initializes the class.
      * If you override this method, make sure you call the parent implementation first.
      * In this method, you must do these things:
      *  + define attribute by $this->defineAttributes method
@@ -273,6 +310,8 @@ class MongoRecord {
      *  + int
      *  + float
      *  + email
+     *  + min
+     *  + max
      * @return array
      */
     public function rules() {
@@ -281,41 +320,56 @@ class MongoRecord {
 
     /**
      * validate data 
-     * @return this
+     * @return boolen
      */
     public function validate() {
         $rules = $this->rules();
         foreach ($rules as $item) {
             $properties = isset($item[0]) ? $item[0] : '';
             $rules = isset($item[1]) ? $item[1] : '';
+            $compareValue = isset($item[2]) ? $item[2] : null;
             if ($properties && $rules) {
                 $properties = explode(',', $properties);
                 foreach ($properties as $prot) {
                     if ($prot) {
                         $value = $this->$prot = !is_array($this->$prot) ? trim($this->$prot) : $this->$prot;
+                        $mess = '';
                         switch ($rules) {
                             case 'required':
                                 if ($value == '' || !$value) {
-                                    $this->_errors[$prot] = "$prot is required";
+                                    $mess = "$prot is required";
                                 }
                                 break;
                             case 'int':
                                 if (!is_numeric($value)) {
-                                    $this->_errors[$prot] = "$prot is not an interger";
+                                    $mess = "$prot is not an interger";
                                 }
                                 break;
                             case 'float':
                                 if (!is_float($value)) {
-                                    $this->_errors[$prot] = "$prot is not a float";
+                                    $mess = "$prot is not a float";
                                 }
                                 break;
                             case 'email':
                                 if (filter_var($value, FILTER_VALIDATE_EMAIL) === FALSE) {
-                                    $this->_errors[$prot] = "$prot is not an email";
+                                    $mess = "$prot is not an email";
+                                }
+                                break;
+                            case 'min':
+                                if ($value < $compareValue) {
+                                    $mess = "$prot must be greater than $compareValue";
+                                }
+                                break;
+                            case 'max':
+                                if ($value > $compareValue) {
+                                    $mess = "$prot must be less than $compareValue";
                                 }
                                 break;
                             default:
                                 break;
+                        }
+                        if ($mess) {
+                            $this->_errors[$prot] = $mess;
                         }
                     }
                 }
@@ -428,7 +482,7 @@ class MongoRecord {
             if ($this->getID() === null) {
                 $result = $this->getCollection()->save($attrs, $options);
             } else {
-                $this->update(array("_id" => $this->getID()), array('$set' => $attrs));
+                $result = $this->update(array("_id" => $this->getID()), array('$set' => $attrs));
             }
             $this->afterSave();
             return $result;
@@ -756,6 +810,76 @@ class MongoRecord {
             return $this->mapper($data);
         }
         return null;
+    }
+
+    /**
+     * get current time by default timezone
+     * 
+     * @return interger
+     */
+    public function getTimeNow() {
+        $date = new DateTime();
+        $date->setTimezone(new DateTimeZone($this->timezone));
+        return $date->getTimestamp();
+    }
+
+    /**
+     * get last elements of mongoCursor query result
+     * 
+     * For example if you wanna get last of query $query = $this->find($condition)->sort($sort)->limit($limit). Call $this->getLastElementOfFind($query) to get last element of query $query
+     * @param MongoCursor $lastQuery
+     * @return array array(first,last)
+     */
+    public function getFistAndLastElementOfFind($lastQuery) {
+        $lastQuery->reset();
+        $first = $lastQuery->getNext();
+        $lastQuery->reset();
+        // get condition
+        $getQuery = $lastQuery->info()['query'];
+        $queryInfor = isset($getQuery['$query']) ? $getQuery['$query'] : array();
+        $sortInfor = isset($getQuery['$orderby']) ? $getQuery['$orderby'] : array();
+        $count = $lastQuery->count(true) > 1 ? $lastQuery->count(true) - 1 : 1;
+        return array($first, $this->find($queryInfor)->sort($sortInfor)->skip($count)->limit(1)->getNext());
+    }
+
+    /**
+     * get _id of an item from mongoCursor
+     * Ex: $query = $model->find();
+     * foreach($query as $item){
+     *   get _id of item by this method
+     * }
+     * 
+     * @param array $item
+     * @return MongoId
+     */
+    public static function getIdOfDataGiven($item) {
+        return isset($item['_id']) ? $item['_id'] : null;
+    }
+
+    /**
+     * convert data to array from an query
+     * Ex: $query = $model->find();
+     * it returns an array data of $query
+     * 
+     * @param MongoCursor $query
+     * @param boolen $mapping 
+     *  - true return array objects 
+     *  - false return array data
+     * 
+     * @return array $result
+     */
+    public function fetchDataArray($query, $mapping = false) {
+        $result = array();
+        if ($mapping === true) {
+            foreach ($query as $item) {
+                $result[] = $this->mapper($item);
+            }
+        } else {
+            foreach ($query as $item) {
+                $result[] = $item;
+            }
+        }
+        return $result;
     }
 
 }
