@@ -13,20 +13,37 @@
  */
 global $mongoConnect;
 $mongoConnect = null;
-
 class MongoRecord {
 
     const SORT_DESC = -1;
     const SORT_ASC = 1;
 
     /**
+     * store attributes of model ORM
+     * @var array
+     */
+    private $_attributes;
+
+    /**
+     * store error message
+     * @var array
+     */
+    private $_errors = array();
+
+    /**
+     *
+     * @var Mongo
+     */
+    private $_connect;
+
+    /**
      * config host
      * 
      * @var array
      */
-    public $hostinfo = array(
-        'host' => '',
-        'port' => '',
+    private $hostinfo = array(
+        'host' => '192.168.4.51',
+        'port' => '27017',
         'username' => '',
         'password' => '',
         'db' => 'service'
@@ -37,13 +54,7 @@ class MongoRecord {
      * 
      * @var MongoRecord 
      */
-    private static $instance;
-
-    /**
-     *
-     * @var Mongo
-     */
-    private $_connect;
+    protected static $instance;
 
     /**
      *
@@ -60,16 +71,16 @@ class MongoRecord {
     protected $_document;
 
     /**
-     * default timezone
-     * @var string
-     */
-    public $timezone = 'UTC';
-
-    /**
      *
      * @var String set collection name
      */
     protected $collectionName;
+
+    /**
+     * default timezone
+     * @var string
+     */
+    public $timezone = 'UTC';
 
     /**
      * array|object that is used for find,...
@@ -78,16 +89,11 @@ class MongoRecord {
     public $criteria = array();
 
     /**
-     * store error message
-     * @var array
+     * enable persisten connection or not
+     * 
+     * @var boolen 
      */
-    private $_errors = array();
-
-    /**
-     * store attributes of model ORM
-     * @var array
-     */
-    private $_attributes;
+    public $persistentConnection = true;
 
     /**
      * 
@@ -228,7 +234,7 @@ class MongoRecord {
      */
     public function __construct() {
         # if you dont use it in Yii Framework, remove them
-        $configYii = Yii::app()->getComponents(false);
+        $configYii = \Yii::$app->params;
         if (isset($configYii['mongodb'])) {
             $this->hostinfo = array_merge($this->hostinfo, $configYii['mongodb']);
             $this->timezone = isset($configYii['mongodb']['timezone']) ? $configYii['mongodb']['timezone'] : $this->timezone;
@@ -237,6 +243,18 @@ class MongoRecord {
         $this->_connectMongo();
         # run init method first
         $this->init();
+    }
+
+    /**
+     * closes connection if option is enabled
+     * @return void
+     */
+    public function __destruct() {
+        if ($this->persistentConnection) {
+            global $mongoConnect;
+            $mongoConnect = NULL;
+            $this->_connect = null;
+        }
     }
 
     /**
@@ -251,20 +269,20 @@ class MongoRecord {
         $dbname = $this->hostinfo['db'];
         $host = $this->hostinfo['host'];
 
-        // check connect object is stored in global variable or not
-        // retry connect if connect is false
-        // if over three times, throw exception
-        if (!is_object($mongoConnect) || !get_class($mongoConnect) == 'Mongo') {
+        # check connect object is stored in global variable or not
+        # retry connect if connect is false
+        # if over three times, throw exception
+        if (!is_object($mongoConnect) || get_class($mongoConnect) != 'MongoClient') {
             try {
                 $stringConnect = $username != '' && $password != '' ? "{$username}:{$password}@{$host}" : "{$host}";
                 $this->_connect = new MongoClient("mongodb://$stringConnect");
                 $mongoConnect = $this->_connect;
             } catch (Exception $e) {
                 if ($retry > 0) {
-                    $this->_connectMongo(--$retry);
+                    $this->_connectMongo( --$retry);
                 }
             }
-        } else {
+        } else {    
             $this->_connect = $mongoConnect;
         }
 
@@ -295,7 +313,7 @@ class MongoRecord {
      *  + set collectionName
      */
     public function init() {
-        
+        $this->clearAttributes();
     }
 
     /**
@@ -441,7 +459,7 @@ class MongoRecord {
         $attributes = $this->getAttributes();
         foreach ($attributes as $attr => $item) {
             if ($item) {
-                $this->criteria[$attr] = $item;
+                $this->criteria[$attr] = is_numeric($item) ? intval($item) : $item;
             }
         }
         return $this->criteria;
@@ -818,8 +836,8 @@ class MongoRecord {
      * @return interger
      */
     public function getTimeNow() {
-        $date = new DateTime();
-        $date->setTimezone(new DateTimeZone($this->timezone));
+        $date = new \DateTime();
+        $date->setTimezone(new \DateTimeZone($this->timezone));
         return $date->getTimestamp();
     }
 
