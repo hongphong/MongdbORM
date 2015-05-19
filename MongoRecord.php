@@ -931,7 +931,7 @@ class MongoRecord {
      * </p>
      * @return array the result of the evaluation.
      */
-    public function excute($code, array $args = 'array()') {
+    public function execute($code, array $args = null) {
         $this->getDb()->execute($code, $args);
     }
 }
