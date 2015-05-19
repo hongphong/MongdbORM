@@ -22,7 +22,7 @@ class MongoRecord {
      * store attributes of model ORM
      * @var array
      */
-    private $_attributes;
+    private $_attributes = [];
 
     /**
      * store error message
