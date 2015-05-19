@@ -899,5 +899,39 @@ class MongoRecord {
         }
         return $result;
     }
+    /**
+     * Map-Reduce code
+     * 
+     * @param array $options [optional] <p>
+     * This parameter is an associative array of the form
+     * array("optionname" => &lt;boolean&gt;, ...). Currently
+     * supported options are:
+     * <p>"timeout"</p><p>Integer, defaults to MongoCursor::$timeout. If acknowledged writes are used, this sets how long (in milliseconds) for the client to wait for a database response. If the database does not respond within the timeout period, a <b>MongoCursorTimeoutException</b> will be thrown.</p>
+     * </p>
+     */
+    public function mapReduce($options = []) {
+        $default = [
+            "mapreduce" => $this->collectionName,
+            "out" => array("inline" => TRUE)
+        ];
+        return $this->getDb()->command(array_merge($default, $options));
+    }
 
+    /**
+     * Excute code
+     * 
+     * (PECL mongo &gt;=0.9.3)<br/>
+     * Runs JavaScript code on the database server.
+     * @link http://php.net/manual/en/mongodb.execute.php
+     * @param mixed $code <p>
+     * <b>MongoCode</b> or string to execute.
+     * </p>
+     * @param array $args [optional] <p>
+     * Arguments to be passed to code.
+     * </p>
+     * @return array the result of the evaluation.
+     */
+    public function excute($code, array $args = 'array()') {
+        $this->getDb()->execute($code, $args);
+    }
 }
